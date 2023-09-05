@@ -1,5 +1,7 @@
 const express = require('express');
 // const bodyParser = require('body-parser');
+const dotenv = require('dotenv');
+dotenv.config({ path: './config.env' });
 
 const router = require('./routes/routes');
 const brapiRouter = require('./routes/brapiRoutes');

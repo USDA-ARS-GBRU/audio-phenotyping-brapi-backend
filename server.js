@@ -1,12 +1,19 @@
 const Sequelize = require('sequelize');
+const dotenv = require('dotenv');
+dotenv.config({ path: './config.env' });
 
-const sequelize = new Sequelize('brapi', 'root', '', {
-    host: 'localhost',
-    dialect: 'mysql',
-    define: {
-        timestamps: false,
-    },
-});
+const sequelize = new Sequelize(
+    process.env.DATABASE_NAME,
+    process.env.DATABASE_USERNAME,
+    process.env.DATABASE_PASSWORD,
+    {
+        host: process.env.HOST,
+        dialect: 'mysql',
+        define: {
+            timestamps: false,
+        },
+    }
+);
 
 sequelize
     .authenticate()
