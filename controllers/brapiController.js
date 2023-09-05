@@ -1,8 +1,40 @@
 const fs = require('fs');
+const axios = require('axios');
+const FormData = require('form-data');
 const Image = require('../models/imageModel');
 const Audio = require('../models/audioModel');
 
-exports.createImage = async (req, res, next) => {
+exports.imagesImageDbIdGET = async function (req, res, next) {
+    try {
+        const id = parseInt(req.params.imageDbId);
+        let audio = await Audio.findByPk(id);
+
+        if (!audio)
+            return res.status(404).json({
+                messageType: 'ERROR',
+                message: 'Audio does not exist',
+            });
+
+        res.status(200).json({
+            status: [
+                {
+                    message: 'Request accepted, response successful',
+                    messageType: 'INFO',
+                },
+            ],
+            result: {
+                data: [audio],
+            },
+        });
+    } catch (err) {
+        res.status(400).json({
+            messageType: 'ERROR',
+            message: err.message,
+        });
+    }
+};
+
+exports.imagesPOST = async (req, res, next) => {
     try {
         if (req.body.additionalInfo.media == 'audio') {
             data = {
@@ -10,17 +42,37 @@ exports.createImage = async (req, res, next) => {
                 audiomimetype: req.body.mimeType,
                 audiourl: req.body.imageURL,
                 time_stamp: req.body.imageTimeStamp,
+                field_id: req.body.additionalInfo.fieldId,
             };
+            // console.log(data);
             const audio = await Audio.create(data);
-            res.status(201).json({
-                status: [
-                    {
-                        message: 'Request accepted, response successful',
-                        messageType: 'INFO',
+            res.status(200).json({
+                metadata: {
+                    datafiles: [],
+                    pagination: {
+                        totalCount: 1,
+                        pageSize: 1,
+                        totalPages: 1,
+                        currentPage: 0,
                     },
-                ],
+                    status: [
+                        {
+                            message: 'Request accepted, response successful',
+                            messageType: 'INFO',
+                        },
+                    ],
+                },
                 result: {
-                    data: [audio],
+                    data: [
+                        {
+                            imageDbId: audio.id,
+                            imageFileName: audio.audio_file_name,
+                            mimeType: audio.audiomimetype,
+                            imageURL: audio.audiourl,
+                            imageTimeStamp: audio.time_stamp,
+                            additionalInfo: { field_id: audio.field_id },
+                        },
+                    ],
                 },
             });
         } else {
@@ -43,7 +95,7 @@ exports.createImage = async (req, res, next) => {
                 observationUnitDbId: req.body.observationUnitDbId,
             };
             const image = await Image.create(data);
-            res.status(201).json({
+            res.status(200).json({
                 status: [
                     {
                         message: 'Request accepted, response successful',
@@ -57,7 +109,7 @@ exports.createImage = async (req, res, next) => {
         }
     } catch (err) {
         res.status(400).json({
-            status: 'fail',
+            messageType: 'ERROR',
             message: err.message,
         });
     }
@@ -65,58 +117,132 @@ exports.createImage = async (req, res, next) => {
 
 exports.imageContentPUT = async function (req, res, next) {
     try {
-        console.log(req.headers);
+        // console.log(req.headers);
         // console.log(typeof req.params.imageDbId);
         const id = parseInt(req.params.imageDbId);
         // console.log(typeof id);
         let audio = await Audio.findByPk(id);
 
         if (!audio)
-            res.status(404).json({
-                status: 'fail',
+            return res.status(404).json({
+                messageType: 'ERROR',
                 message: 'Audio does not exist',
             });
-        else {
-            const path = `./uploads/${audio.audio_file_name}`;
-            fs.writeFile(path, req.body, async (err) => {
-                if (err) {
-                    console.error('Error writing file:', err);
-                    res.status(400).json({ result: 'Unsuccessful' });
-                } else {
-                    console.log('File saved successfully!');
-                    console.log(id);
-                    console.log(path);
-                    console.log(req.headers['content-type']);
-                    await Audio.update(
-                        {
-                            audiomimetype: req.headers['content-type'],
-                            audiourl: path,
-                        },
-                        {
-                            where: {
-                                id: id,
-                            },
-                        }
-                    );
-                    // console.log(audio);
-                    res.status(201).json({
-                        status: [
-                            {
-                                message:
-                                    'Request accepted, response successful',
-                                messageType: 'INFO',
-                            },
-                        ],
-                        result: {
-                            data: [audio],
-                        },
-                    });
+
+        const response = await axios.get(
+            'https://demo.breedbase.org/ajax/user/login',
+            { params: { username: 'janedoe', password: 'secretpw' } }
+        );
+
+        const cookie = response.headers['set-cookie'];
+        const URL = `https://demo.breedbase.org/ajax/breeders/trial/${audio.field_id}/upload_additional_file`;
+        // console.log(audio);
+        // Create a new FormData instance
+        const formData = new FormData();
+        // console.log(req);
+        formData.append(
+            'trial_upload_additional_file',
+            req.body,
+            'example.mp3' //TO DO: have some naming convention for this
+        ); // Append the binary data to the form data
+        // console.log(cookie);
+        // console.log(formData);
+        const response2 = await axios.post(URL, formData, {
+            headers: { Cookie: cookie, ...formData.getHeaders() },
+        });
+        // console.log(response2);
+        if (response2.data.success == 1) {
+            await Audio.update(
+                {
+                    audiomimetype: req.headers['content-type'],
+                    audiourl: `https://demo.breedbase.org/breeders/phenotyping/download/${response2.data.file_id}`,
+                    file_id: response2.data.file_id,
+                },
+                {
+                    where: {
+                        id: id,
+                    },
                 }
+            );
+            audio = await Audio.findByPk(id);
+            _;
+            res.status(200).json({
+                metadata: {
+                    datafiles: [],
+                    pagination: {
+                        totalCount: 1,
+                        pageSize: 1,
+                        totalPages: 1,
+                        currentPage: 0,
+                    },
+                    status: [
+                        {
+                            messageType: 'INFO',
+                            message: 'Request accepted, response successful',
+                        },
+                    ],
+                },
+                result: {
+                    data: [
+                        {
+                            imageDbId: audio.id,
+                            imageFileName: audio.audio_file_name,
+                            mimeType: audio.audiomimetype,
+                            imageURL: audio.audiourl,
+                            imageTimeStamp: audio.time_stamp,
+                            additionalInfo: {
+                                field_id: audio.field_id,
+                                file_id: audio.file_id,
+                            },
+                        },
+                    ],
+                },
+            });
+        } else {
+            res.status(400).json({
+                messageType: 'ERROR',
+                message: 'Audio upload unsuccessful',
             });
         }
+        // const path = `./uploads/${audio.audio_file_name}`;
+        // fs.writeFile(path, req.body, async (err) => {
+        //     if (err) {
+        //         console.error('Error writing file:', err);
+        //         res.status(400).json({ result: 'Unsuccessful' });
+        //     } else {
+        //         console.log('File saved successfully!');
+        //         console.log(id);
+        //         console.log(path);
+        //         console.log(req.headers['content-type']);
+        //         await Audio.update(
+        //             {
+        //                 audiomimetype: req.headers['content-type'],
+        //                 audiourl: path,
+        //             },
+        //             {
+        //                 where: {
+        //                     id: id,
+        //                 },
+        //             }
+        //         );
+        //         // console.log(audio);
+        //         res.status(200).json({
+        //             status: [
+        //                 {
+        //                     message:
+        //                         'Request accepted, response successful',
+        //                     messageType: 'INFO',
+        //                 },
+        //             ],
+        //             result: {
+        //                 data: [audio],
+        //             },
+        //         });
+        //     }
+        // });
     } catch (err) {
         res.status(400).json({
-            status: 'fail',
+            messageType: 'ERROR',
             message: err.message,
         });
     }
@@ -138,7 +264,7 @@ exports.imagesImageDbIdPUT = async function (req, res, next) {
             let audio = await Audio.findByPk(id);
             if (!audio)
                 return res.status(404).json({
-                    status: 'fail',
+                    messageType: 'ERROR',
                     message: 'Audio does not exist',
                 });
             await Audio.update(data, {
@@ -146,7 +272,7 @@ exports.imagesImageDbIdPUT = async function (req, res, next) {
                     id: id,
                 },
             });
-            return res.status(201).json({
+            return res.status(200).json({
                 status: [
                     {
                         message: 'Request accepted, response successful',
@@ -159,12 +285,12 @@ exports.imagesImageDbIdPUT = async function (req, res, next) {
             });
         }
         res.status(400).json({
-            status: 'fail',
+            messageType: 'ERROR',
             message: 'Incorrect request format',
         });
     } catch (err) {
         res.status(400).json({
-            status: 'Fail',
+            messageType: 'ERROR',
             message: err.message,
         });
     }
@@ -172,7 +298,6 @@ exports.imagesImageDbIdPUT = async function (req, res, next) {
 
 exports.serverInfo = async function (req, res, next) {
     res.status(200).json({
-        '@context': ['https://brapi.org/jsonld/context/metadata.jsonld'],
         metadata: {
             datafiles: [],
             pagination: {

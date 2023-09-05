@@ -1,6 +1,6 @@
 const Sequelize = require('sequelize');
 
-const sequelize = new Sequelize('brapi', 'root', 'savla000822', {
+const sequelize = new Sequelize('brapi', 'root', '', {
     host: 'localhost',
     dialect: 'mysql',
     define: {

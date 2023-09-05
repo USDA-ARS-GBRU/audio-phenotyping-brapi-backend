@@ -23,6 +23,15 @@ const Audio = sequelize.define(
         time_stamp: {
             type: DataTypes.DATE,
         },
+        //The ID of the field trial to which the audio belongs
+        field_id: {
+            type: DataTypes.INTEGER,
+            allowNull: false,
+        },
+        //The ID of the audio file in the breedbase database
+        file_id: {
+            type: DataTypes.INTEGER,
+        },
     },
     {
         tableName: 'audio',
