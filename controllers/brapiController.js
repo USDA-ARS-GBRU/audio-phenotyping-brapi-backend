@@ -3,9 +3,30 @@ const axios = require('axios');
 const FormData = require('form-data');
 const Image = require('../models/imageModel');
 const Audio = require('../models/audioModel');
+const { Queue, Worker } = require('bullmq');
+// const Redis = require('ioredis');
+
+const myQueue = new Queue('myqueue', {
+    connection: {
+        host: process.env.REDIS_HOST,
+        port: process.env.REDIS_PORT,
+        username: process.env.REDIS_USERNAME,
+        password: process.env.REDIS_PASSWORD,
+    },
+});
+
+// console.log(myQueue);
+// (async () => {
+//     const jobs = await myQueue.getJobs(['waiting', 'active', 'completed', 'failed']);
+//     jobs.forEach(job => {
+//       console.log(job);
+//     });
+//   })();
 
 exports.imagesImageDbIdGET = async function (req, res, next) {
     try {
+        // const completed = await myQueue.getJobs(['wait'], 0, 100, true);
+        // console.log(completed);
         const id = parseInt(req.params.imageDbId);
         let audio = await Audio.findByPk(id);
 
@@ -144,7 +165,8 @@ exports.imageContentPUT = async function (req, res, next) {
             'trial_upload_additional_file',
             req.body,
             'example.mp3' //TO DO: have some naming convention for this
-        ); // Append the binary data to the form data
+        );
+        // Append the binary data to the form data
         // console.log(cookie);
         // console.log(formData);
         const response2 = await axios.post(URL, formData, {
@@ -165,7 +187,15 @@ exports.imageContentPUT = async function (req, res, next) {
                 }
             );
             audio = await Audio.findByPk(id);
-            _;
+            const jobData = {
+                audio_url: audio.audiourl,
+                log_url:
+                    'https://demo.breedbase.org/breeders/phenotyping/download/54',
+                field_id: audio.field_id,
+                file_id: audio.file_id,
+            };
+            const job = await myQueue.add(`job${audio.file_id}`, jobData);
+            console.log(job);
             res.status(200).json({
                 metadata: {
                     datafiles: [],
