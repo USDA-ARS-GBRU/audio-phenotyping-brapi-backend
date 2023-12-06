@@ -17,8 +17,6 @@ const brapiController = require('../controllers/brapiController');
 
 const router = express.Router();
 
-router.get('/serverinfo', brapiController.serverInfo);
-
 router.get('/images/:imageDbId', brapiController.imagesImageDbIdGET);
 router.post('/images', brapiController.imagesPOST);
 router.put('/images/:imageDbId', brapiController.imagesImageDbIdPUT);

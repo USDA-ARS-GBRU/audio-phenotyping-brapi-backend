@@ -4,7 +4,7 @@ const FormData = require('form-data');
 const Image = require('../models/imageModel');
 const Audio = require('../models/audioModel');
 const { Queue, Worker } = require('bullmq');
-// const Redis = require('ioredis');
+const AdmZip = require('adm-zip');
 
 const myQueue = new Queue('myqueue', {
     connection: {
@@ -25,8 +25,6 @@ const myQueue = new Queue('myqueue', {
 
 exports.imagesImageDbIdGET = async function (req, res, next) {
     try {
-        // const completed = await myQueue.getJobs(['wait'], 0, 100, true);
-        // console.log(completed);
         const id = parseInt(req.params.imageDbId);
         let audio = await Audio.findByPk(id);
 
@@ -65,7 +63,7 @@ exports.imagesPOST = async (req, res, next) => {
                 time_stamp: req.body.imageTimeStamp,
                 field_id: req.body.additionalInfo.fieldId,
             };
-            // console.log(data);
+
             const audio = await Audio.create(data);
             res.status(200).json({
                 metadata: {
@@ -138,10 +136,7 @@ exports.imagesPOST = async (req, res, next) => {
 
 exports.imageContentPUT = async function (req, res, next) {
     try {
-        // console.log(req.headers);
-        // console.log(typeof req.params.imageDbId);
         const id = parseInt(req.params.imageDbId);
-        // console.log(typeof id);
         let audio = await Audio.findByPk(id);
 
         if (!audio)
@@ -150,35 +145,61 @@ exports.imageContentPUT = async function (req, res, next) {
                 message: 'Audio does not exist',
             });
 
-        const response = await axios.get(
-            'https://demo.breedbase.org/ajax/user/login',
-            { params: { username: 'janedoe', password: 'secretpw' } }
+        const login_response = await axios.get(
+            `${process.env.BREEDBASE_HOST}ajax/user/login`,
+            {
+                params: {
+                    username: `${process.env.BREEDBASE_USERNAME}`,
+                    password: `${process.env.BREEDBASE_PASSWORD}`,
+                },
+            }
         );
 
-        const cookie = response.headers['set-cookie'];
-        const URL = `https://demo.breedbase.org/ajax/breeders/trial/${audio.field_id}/upload_additional_file`;
-        // console.log(audio);
+        const cookie = login_response.headers['set-cookie'];
+        const URL = `${process.env.BREEDBASE_HOST}ajax/breeders/trial/${audio.field_id}/upload_additional_file`;
+
+        const zip = new AdmZip(req.body);
+        const zipEntries = zip.getEntries();
+
+        if (zipEntries.length != 2) {
+            return res.status(404).json({
+                messageType: 'ERROR',
+                message: 'Did not receive valid number of files',
+            });
+        }
+
+        var zipEntry1 = zipEntries[0];
+        var zipEntry2 = zipEntries[1];
+
         // Create a new FormData instance
-        const formData = new FormData();
-        // console.log(req);
-        formData.append(
+        const formData1 = new FormData();
+        formData1.append(
             'trial_upload_additional_file',
-            req.body,
-            'example.mp3' //TO DO: have some naming convention for this
+            zip.readFile(zipEntry1),
+            `${zipEntry1.entryName}` //TO DO: have some naming convention for this
         );
-        // Append the binary data to the form data
-        // console.log(cookie);
-        // console.log(formData);
-        const response2 = await axios.post(URL, formData, {
-            headers: { Cookie: cookie, ...formData.getHeaders() },
+        const response1 = await axios.post(URL, formData1, {
+            headers: { Cookie: cookie, ...formData1.getHeaders() },
         });
-        // console.log(response2);
-        if (response2.data.success == 1) {
+
+        const formData2 = new FormData();
+        formData2.append(
+            'trial_upload_additional_file',
+            zip.readFile(zipEntry2),
+            `${zipEntry2.entryName}` //TO DO: have some naming convention for this
+        );
+        const response2 = await axios.post(URL, formData2, {
+            headers: { Cookie: cookie, ...formData2.getHeaders() },
+        });
+
+        if (response1.data.success == 1 && response2.data.success == 1) {
+            console.log(`Audio and log files uploaded to Breedbase`);
+
             await Audio.update(
                 {
                     audiomimetype: req.headers['content-type'],
-                    audiourl: `https://demo.breedbase.org/breeders/phenotyping/download/${response2.data.file_id}`,
-                    file_id: response2.data.file_id,
+                    audiourl: `${process.env.BREEDBASE_HOST}breeders/phenotyping/download/${response1.data.file_id}`,
+                    file_id: response1.data.file_id,
                 },
                 {
                     where: {
@@ -189,13 +210,15 @@ exports.imageContentPUT = async function (req, res, next) {
             audio = await Audio.findByPk(id);
             const jobData = {
                 audio_url: audio.audiourl,
-                log_url:
-                    'https://demo.breedbase.org/breeders/phenotyping/download/54',
+                log_url: `${process.env.BREEDBASE_HOST}breeders/phenotyping/download/${response2.data.file_id}`,
                 field_id: audio.field_id,
                 file_id: audio.file_id,
             };
             const job = await myQueue.add(`job${audio.file_id}`, jobData);
-            console.log(job);
+
+            console.log(`New job added to queue:`, job.name);
+            console.log(job.data);
+
             res.status(200).json({
                 metadata: {
                     datafiles: [],
@@ -234,42 +257,6 @@ exports.imageContentPUT = async function (req, res, next) {
                 message: 'Audio upload unsuccessful',
             });
         }
-        // const path = `./uploads/${audio.audio_file_name}`;
-        // fs.writeFile(path, req.body, async (err) => {
-        //     if (err) {
-        //         console.error('Error writing file:', err);
-        //         res.status(400).json({ result: 'Unsuccessful' });
-        //     } else {
-        //         console.log('File saved successfully!');
-        //         console.log(id);
-        //         console.log(path);
-        //         console.log(req.headers['content-type']);
-        //         await Audio.update(
-        //             {
-        //                 audiomimetype: req.headers['content-type'],
-        //                 audiourl: path,
-        //             },
-        //             {
-        //                 where: {
-        //                     id: id,
-        //                 },
-        //             }
-        //         );
-        //         // console.log(audio);
-        //         res.status(200).json({
-        //             status: [
-        //                 {
-        //                     message:
-        //                         'Request accepted, response successful',
-        //                     messageType: 'INFO',
-        //                 },
-        //             ],
-        //             result: {
-        //                 data: [audio],
-        //             },
-        //         });
-        //     }
-        // });
     } catch (err) {
         res.status(400).json({
             messageType: 'ERROR',
@@ -324,49 +311,4 @@ exports.imagesImageDbIdPUT = async function (req, res, next) {
             message: err.message,
         });
     }
-};
-
-exports.serverInfo = async function (req, res, next) {
-    res.status(200).json({
-        metadata: {
-            datafiles: [],
-            pagination: {
-                currentPage: 0,
-                pageSize: 1000,
-                totalCount: 10,
-                totalPages: 1,
-            },
-            status: [
-                {
-                    message: 'Request accepted, response successful',
-                    messageType: 'INFO',
-                },
-            ],
-        },
-        result: {
-            calls: [
-                {
-                    contentTypes: ['application/json'],
-                    dataTypes: ['application/json'],
-                    methods: ['GET', 'POST'],
-                    service: 'germplasm/{germplasmDbId}/pedigree',
-                    versions: ['2.0', '2.1'],
-                },
-                {
-                    contentTypes: ['application/json'],
-                    dataTypes: ['application/json'],
-                    methods: ['POST'],
-                    service: 'images',
-                    versions: ['2.0', '2.1'],
-                },
-                {
-                    contentTypes: ['application/json'],
-                    dataTypes: ['application/json'],
-                    methods: ['PUT'],
-                    service: 'images/{imageDbId}/imageContent',
-                    versions: ['2.0', '2.1'],
-                },
-            ],
-        },
-    });
 };
